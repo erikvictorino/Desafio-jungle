@@ -7,11 +7,15 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { MikroOrmModule } from '@mikro-orm/nestjs';
+import mikroOrmConfig from './mikro-orm.config.js';
 let AppModule = class AppModule {
 };
 AppModule = __decorate([
     Module({
-        imports: [],
+        imports: [
+            MikroOrmModule.forRoot(mikroOrmConfig),
+        ],
         controllers: [AppController],
         providers: [AppService],
     })
