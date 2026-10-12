@@ -55,4 +55,4 @@ LedgerEntry = __decorate([
     Entity()
 ], LedgerEntry);
 export { LedgerEntry };
-//# sourceMappingURL=ledger-entry-entity.js.map
+//# sourceMappingURL=ledger-entry.entity.js.map

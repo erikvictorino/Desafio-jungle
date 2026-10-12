@@ -8,7 +8,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 import { Entity, Property, Unique, PrimaryKey } from '@mikro-orm/decorators/legacy';
-var TransactionKind;
+export var TransactionKind;
 (function (TransactionKind) {
     TransactionKind["BET"] = "BET";
     TransactionKind["WIN"] = "WIN";
@@ -16,7 +16,7 @@ var TransactionKind;
     TransactionKind["REFUND"] = "REFUND";
     TransactionKind["ROLLBACK"] = "ROLLBACK";
 })(TransactionKind || (TransactionKind = {}));
-var TransactionStatus;
+export var TransactionStatus;
 (function (TransactionStatus) {
     TransactionStatus["PENDING"] = "PENDING";
     TransactionStatus["PENDING_REFERENCE"] = "PENDING_REFERENCE";

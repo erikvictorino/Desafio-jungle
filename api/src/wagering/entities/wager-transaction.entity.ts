@@ -2,7 +2,7 @@
 import {Entity, Property, Unique, PrimaryKey} from '@mikro-orm/decorators/legacy'
 
 //tipos de transação
-enum TransactionKind {
+export enum TransactionKind {
     BET = 'BET',
     WIN = 'WIN',
     LOSS = 'LOSS',
@@ -11,7 +11,7 @@ enum TransactionKind {
 }
 
 //status da transação
-enum TransactionStatus {
+export enum TransactionStatus {
     PENDING = 'PENDING',
     PENDING_REFERENCE = 'PENDING_REFERENCE',
     PROCESSED = 'PROCESSED',

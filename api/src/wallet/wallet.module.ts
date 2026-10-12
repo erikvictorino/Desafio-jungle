@@ -3,7 +3,7 @@ import { MikroOrmModule } from '@mikro-orm/nestjs';
 
 // Importando as entidades que serão utilizadas pelo módulo de carteira
 import { Wallet } from './wallet.entity.js';
-import { LedgerEntry } from './entities/ledger-entry-entity.js';
+import { LedgerEntry } from './entities/ledger-entry.entity.js';
 import { WagerTransaction } from '../wagering/entities/wager-transaction.entity.js';
 
 // Importando o serviço e o controller da carteira

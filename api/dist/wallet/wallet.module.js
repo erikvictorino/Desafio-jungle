@@ -7,7 +7,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 import { Module } from '@nestjs/common';
 import { MikroOrmModule } from '@mikro-orm/nestjs';
 import { Wallet } from './wallet.entity.js';
-import { LedgerEntry } from './entities/ledger-entry-entity.js';
+import { LedgerEntry } from './entities/ledger-entry.entity.js';
 import { WagerTransaction } from '../wagering/entities/wager-transaction.entity.js';
 import { WalletService } from './wallet.service.js';
 import { WalletController } from './wallet.controller.js';

@@ -1,20 +1,24 @@
 import { defineConfig } from '@mikro-orm/postgresql';
-import 'dotenv/config'
+import 'dotenv/config';
 
-//configurando mikroORM
+// Importando as entidades explicitamente para evitar falhas na descoberta
+import { Wallet } from './wallet/wallet.entity.js';
+import { LedgerEntry } from './wallet/entities/ledger-entry.entity.js';
+import { WagerTransaction } from './wagering/entities/wager-transaction.entity.js';
+
 export default defineConfig({
-  //local do banco
+  // Configurações de conexão com o PostgreSQL
   host: process.env.DB_HOST ?? 'localhost',
-  //porta que o banco vai usar 
   port: Number(process.env.DB_PORT ?? 5432),
-  //credenciais do usuario
-  user: process.env.DB_USER ?? 'root',
+  user: process.env.DB_USER ?? 'jungle',
   password: process.env.DB_PASSWORD,
-  //nome do banco
-  dbName: process.env.DB_NAME ?? 'desafio_jungle',
-  //entidades e migrations
-  entities: ['./dist/**/*.entity.js'],
-  entitiesTs: ['./src/**/*.entity.ts'],
+  dbName: process.env.DB_NAME ?? 'jungle_gaming',
+
+  // Entidades usadas pela aplicação
+  entities: [Wallet, LedgerEntry, WagerTransaction],
+  entitiesTs: [Wallet, LedgerEntry, WagerTransaction],
+
+  // Configuração das migrações
   migrations: {
     path: './dist/migrations',
     pathTs: './src/migrations',

@@ -1,11 +1,11 @@
-declare enum TransactionKind {
+export declare enum TransactionKind {
     BET = "BET",
     WIN = "WIN",
     LOSS = "LOSS",
     REFUND = "REFUND",
     ROLLBACK = "ROLLBACK"
 }
-declare enum TransactionStatus {
+export declare enum TransactionStatus {
     PENDING = "PENDING",
     PENDING_REFERENCE = "PENDING_REFERENCE",
     PROCESSED = "PROCESSED",
@@ -28,4 +28,3 @@ export declare class WagerTransaction {
     status: TransactionStatus;
     createdAt: Date;
 }
-export {};
