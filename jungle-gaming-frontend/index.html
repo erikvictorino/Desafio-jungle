@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Interface local para testar transações do Jungle Gaming Wagering Processor.">
+  <title>Jungle Gaming | Wagering Processor</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true">JG</div>
+    <div class="brand-copy">
+      <strong>Jungle Gaming</strong>
+      <span>Wagering Processor</span>
+    </div>
+    <div class="environment"><span class="status-dot"></span> Ambiente local</div>
+  </header>
+
+  <main class="page">
+    <section class="intro">
+      <p class="eyebrow">PAINEL DE TESTES</p>
+      <h1>Enviar aposta</h1>
+      <p class="intro-copy">Preencha os dados da transação para enviar uma requisição à API.</p>
+    </section>
+
+    <div class="layout">
+      <section class="panel form-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Dados da transação</h2>
+            <p>Os dados serão enviados ao backend configurado.</p>
+          </div>
+          <span class="method">POST</span>
+        </div>
+
+        <form id="bet-form">
+          <div class="field-grid">
+            <label class="field">
+              <span>Jogador <b>*</b></span>
+              <input name="playerId" value="player-1" required autocomplete="off">
+            </label>
+            <label class="field">
+              <span>Provedor <b>*</b></span>
+              <input name="providerId" value="provider-demo" required autocomplete="off">
+            </label>
+            <label class="field">
+              <span>ID externo da transação <b>*</b></span>
+              <input name="externalTransactionId" id="externalTransactionId" required autocomplete="off">
+              <small>Deve ser único para cada aposta nova.</small>
+            </label>
+            <label class="field">
+              <span>Chave de idempotência <b>*</b></span>
+              <input name="idempotencyKey" id="idempotencyKey" required autocomplete="off">
+              <small>Reutilize a chave para testar repetição idempotente.</small>
+            </label>
+            <label class="field">
+              <span>Valor (BRL) <b>*</b></span>
+              <div class="amount-wrap">
+                <span>R$</span>
+                <input name="amount" type="number" min="0.01" step="0.01" value="10.00" required>
+              </div>
+            </label>
+            <label class="field">
+              <span>Moeda <b>*</b></span>
+              <input name="currency" value="BRL" maxlength="3" required autocomplete="off">
+            </label>
+            <label class="field">
+              <span>Rodada <b>*</b></span>
+              <input name="roundId" value="round-1" required autocomplete="off">
+            </label>
+            <label class="field">
+              <span>Jogo <b>*</b></span>
+              <input name="gameId" value="game-1" required autocomplete="off">
+            </label>
+          </div>
+
+          <div class="notice">
+            <strong>Importante</strong>
+            <p>Esta tela envia uma aposta do tipo BET, conforme o fluxo implementado no backend atual. O saldo é controlado pela API, não pelo navegador.</p>
+          </div>
+
+          <div id="form-error" class="alert alert-error hidden" role="alert"></div>
+          <div class="form-actions">
+            <button type="button" class="button button-secondary" id="new-id-button">Gerar novos IDs</button>
+            <button type="submit" class="button button-primary" id="submit-button">
+              <span class="button-label">Enviar aposta</span>
+              <span class="spinner hidden" aria-hidden="true"></span>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="side-column">
+        <section class="panel config-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Conexão com a API</h2>
+              <p>Configure o endereço do backend local.</p>
+            </div>
+          </div>
+          <label class="field">
+            <span>URL base</span>
+            <input id="api-url" type="url" value="http://localhost:3000" spellcheck="false">
+          </label>
+          <p class="endpoint"><span>POST</span> <code>/wagering/transactions</code></p>
+          <button id="save-config" class="button button-secondary button-full" type="button">Salvar endereço</button>
+          <p id="config-message" class="helper" aria-live="polite">A URL fica salva neste navegador.</p>
+        </section>
+
+        <section class="panel result-panel" aria-live="polite">
+          <div class="panel-heading">
+            <div>
+              <h2>Resultado</h2>
+              <p>Resposta da última requisição.</p>
+            </div>
+            <span id="result-status" class="status-label status-neutral">Aguardando</span>
+          </div>
+          <div id="empty-result" class="empty-state">
+            <div class="empty-icon" aria-hidden="true">↗</div>
+            <strong>Nenhuma transação enviada</strong>
+            <p>O resultado aparecerá aqui após o envio do formulário.</p>
+          </div>
+          <div id="result-content" class="hidden">
+            <div class="result-balance">
+              <span>Saldo retornado pela API</span>
+              <strong id="result-balance">—</strong>
+            </div>
+            <dl class="result-details">
+              <div><dt>ID da transação</dt><dd id="result-transaction-id">—</dd></div>
+              <div><dt>Status</dt><dd id="result-transaction-status">—</dd></div>
+              <div><dt>Repetição idempotente</dt><dd id="result-replayed">—</dd></div>
+              <div><dt>Mensagem</dt><dd id="result-message">—</dd></div>
+            </dl>
+            <details class="raw-response">
+              <summary>Ver resposta completa</summary>
+              <pre id="raw-json"></pre>
+            </details>
+          </div>
+        </section>
+      </aside>
+    </div>
+    <footer class="footer">MVP local · O backend é a fonte da verdade para saldo e estado das transações.</footer>
+  </main>
+</body>
+</html>

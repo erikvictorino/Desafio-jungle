@@ -1,0 +1,370 @@
+# 🦧 Distributed Wagering Processor — Jungle Gaming
+
+> **Status: MVP (Minimum Viable Product) em desenvolvimento.**  
+> Este repositório contém uma primeira versão funcional para demonstrar o fluxo principal de processamento de apostas, com foco em consistência financeira, idempotência e concorrência. Ele **não representa a implementação completa** de todos os requisitos do desafio.
+
+## Índice
+
+- [1. Sobre o projeto](#1-sobre-o-projeto)
+- [2. Estado atual do MVP](#2-estado-atual-do-mvp)
+- [3. Arquitetura e tecnologias](#3-arquitetura-e-tecnologias)
+- [4. Fluxo de uma aposta](#4-fluxo-de-uma-aposta)
+- [5. Decisões técnicas](#5-decisões-técnicas)
+- [6. Front-end de demonstração](#6-front-end-de-demonstração)
+- [7. Executando localmente](#7-executando-localmente)
+- [8. Testando a API com curl](#8-testando-a-api-com-curl)
+- [9. Respostas e cenários esperados](#9-respostas-e-cenários-esperados)
+- [10. Limitações conhecidas](#10-limitações-conhecidas)
+- [11. Próximos passos](#11-próximos-passos)
+- [12. Uso de inteligência artificial](#12-uso-de-inteligência-artificial)
+
+## 1. Sobre o projeto
+
+O **Distributed Wagering Processor** é uma API para receber e processar operações financeiras de apostas enviadas por provedores de jogos. O problema central não é apenas registrar uma aposta: é garantir que uma repetição de requisição, duas apostas concorrentes ou uma falha de comunicação não provoquem débitos duplicados ou um saldo incorreto.
+
+No cenário completo, o serviço deve lidar com entrega de eventos *at-least-once*: a mesma operação pode ser recebida mais de uma vez, operações podem chegar fora de ordem e mais de uma instância pode tentar movimentar a mesma carteira simultaneamente.
+
+O objetivo desta entrega é construir uma base funcional e explicar as decisões adotadas, sem afirmar que os requisitos distribuídos já estão todos implementados.
+
+## 2. Estado atual do MVP
+
+### O que já funciona
+
+- Recebe uma solicitação de aposta pela rota `POST /wagering/transactions`.
+- Identifica a carteira a partir do jogador e da moeda informados.
+- Valida os dados financeiros básicos, incluindo valor positivo e formato de moeda.
+- Verifica se há saldo suficiente para a aposta.
+- Debita o saldo quando a aposta pode ser processada.
+- Registra um lançamento financeiro associado ao débito no ledger.
+- Rejeita uma aposta quando não há saldo suficiente, sem realizar o débito.
+- Reconhece uma repetição idêntica da mesma transação e evita executar o débito novamente.
+- Detecta uma reutilização dos identificadores de idempotência com um conteúdo de negócio diferente e retorna conflito.
+- Usa uma transação no banco e bloqueio pessimista da carteira para proteger o fluxo contra duas apostas concorrentes sobre o mesmo saldo.
+- Inclui um front-end simples em HTML, CSS e JavaScript puro para enviar apostas e visualizar a resposta da API.
+
+### O que ainda não está implementado por completo
+
+Este MVP **não deve ser considerado um processador distribuído pronto para produção**. Entre os itens pendentes estão:
+
+- Integração completa com AWS SQS usando LocalStack ou MiniStack.
+- Padrões Inbox e Outbox persistidos e integrados ao fluxo de processamento.
+- Processamento assíncrono por workers e recuperação de mensagens após falhas.
+- Todas as operações do domínio, como `WIN`, `LOSS`, `REFUND` e `ROLLBACK`. O fluxo demonstrado atualmente é o de `BET`.
+- Rotinas completas de reconciliação financeira.
+- Todos os endpoints de consulta previstos no desafio.
+- Autenticação com um provedor de identidade externo.
+- Cobertura completa de testes automatizados e testes de falhas distribuídas.
+- Validação de todas as invariantes diretamente por constraints e mecanismos do schema do banco, conforme exige a versão completa do desafio.
+- Estratégias operacionais de observabilidade, retentativas, dead-letter queue e monitoramento de produção.
+
+Os itens acima são **trabalho futuro**, não funcionalidades que este README afirma já estarem prontas.
+
+## 3. Arquitetura e tecnologias
+
+| Tecnologia | Papel no projeto |
+|---|---|
+| [Bun](https://bun.sh/) | Runtime e ferramentas de desenvolvimento utilizadas no projeto |
+| [TypeScript](https://www.typescriptlang.org/) | Linguagem, com tipagem estática |
+| [NestJS](https://nestjs.com/) | Framework HTTP e organização da aplicação em módulos e serviços |
+| [PostgreSQL](https://www.postgresql.org/) | Persistência dos dados financeiros |
+| [MikroORM](https://mikro-orm.io/) | Mapeamento objeto-relacional e acesso ao banco |
+| [Docker Compose](https://docs.docker.com/compose/) | Execução local dos serviços de infraestrutura, incluindo o PostgreSQL |
+| HTML, CSS e JavaScript | Interface web de demonstração, sem framework de front-end |
+
+### Organização conceitual
+
+O fluxo principal pode ser entendido assim:
+
+```text
+Navegador / cliente HTTP
+        |
+        v
+POST /wagering/transactions
+        |
+        v
+Controller NestJS
+        |
+        v
+Serviço de processamento financeiro
+        |
+        +--> valida os dados e a idempotência
+        |
+        +--> abre uma transação no PostgreSQL
+        |
+        +--> bloqueia a carteira correspondente
+        |
+        +--> valida o saldo disponível
+        |
+        +--> atualiza saldo e grava o lançamento no ledger
+        |
+        v
+Resposta HTTP com status e saldo resultante
+```
+
+O front-end é apenas um cliente da API. As decisões financeiras e as validações importantes precisam acontecer no backend, porque dados enviados pelo navegador podem ser alterados pelo usuário.
+
+## 4. Fluxo de uma aposta
+
+Ao enviar uma aposta pelo formulário ou diretamente pela API, o backend segue, em termos gerais, este processo:
+
+1. **Recebe os dados da operação.** A requisição identifica o provedor, a transação externa, o jogador, a moeda, o valor, a rodada e o jogo.
+2. **Valida os dados financeiros.** O valor deve seguir o formato esperado e ser maior que zero. A moeda deve ter o formato de código de três letras utilizado pelo sistema.
+3. **Verifica a idempotência.** O backend procura uma transação já registrada com os identificadores do provedor e da transação externa.
+4. **Distingue repetição de conflito.** Se a solicitação representa a mesma operação já processada, ela é tratada como replay. Se os mesmos identificadores forem reutilizados com dados de negócio diferentes, a API retorna conflito em vez de tratar a nova operação como se fosse idêntica.
+5. **Obtém e bloqueia a carteira.** O bloqueio pessimista impede que duas transações do fluxo atual leiam e alterem simultaneamente o mesmo saldo sem coordenação no banco.
+6. **Confere o saldo.** Se não houver saldo suficiente, a aposta é rejeitada e o saldo não é debitado.
+7. **Registra a movimentação.** Se houver saldo, o saldo da carteira é atualizado e um lançamento de débito é registrado no ledger, dentro do fluxo transacional.
+8. **Devolve o resultado.** A API informa o estado da transação e o saldo resultante, quando disponível.
+
+> **Importante:** a existência de uma transação SQL e de um bloqueio pessimista melhora a segurança do fluxo implementado, mas não substitui toda a arquitetura de Inbox/Outbox, mensageria, constraints e recuperação exigida para o cenário distribuído completo.
+
+## 5. Decisões técnicas
+
+Esta seção documenta o motivo das escolhas feitas no MVP e seus limites.
+
+### 5.1 NestJS para estruturar a API
+
+O NestJS fornece uma estrutura clara para separar controllers, serviços e módulos. O controller fica responsável pela entrada HTTP e pela resposta; as regras de negócio ficam no serviço de processamento.
+
+**Por que isso importa:** regras financeiras não devem ficar espalhadas por rotas ou misturadas com detalhes da interface. A separação facilita testar o domínio e evoluir o projeto.
+
+### 5.2 TypeScript para explicitar os dados
+
+O TypeScript ajuda a representar os formatos esperados pela aplicação e identificar incompatibilidades durante o desenvolvimento.
+
+**Limite:** tipos TypeScript são removidos em tempo de execução. Por isso, tipagem estática não substitui a validação dos dados recebidos pela API.
+
+### 5.3 PostgreSQL como fonte persistente dos dados
+
+O PostgreSQL mantém o saldo, as transações e os lançamentos entre reinicializações da aplicação. A idempotência não depende apenas de uma variável ou cache em memória.
+
+**Por que isso importa:** uma aplicação pode reiniciar ou rodar em mais de uma instância. Uma garantia financeira não pode depender exclusivamente da memória de um processo.
+
+**Limite atual:** ainda é necessário completar e verificar as constraints de banco exigidas pelo desafio, especialmente para garantir unicidade e outras invariantes mesmo diante de concorrência entre múltiplas instâncias.
+
+### 5.4 MikroORM para acesso relacional
+
+O MikroORM permite mapear os objetos da aplicação para registros relacionais e trabalhar com transações e bloqueios do banco.
+
+**Por que isso importa:** o fluxo financeiro precisa manter as alterações relacionadas consistentes. O saldo não deve ser atualizado com uma sequência desprotegida de leitura, cálculo e escrita.
+
+### 5.5 Transação SQL para agrupar alterações financeiras
+
+A atualização do saldo e a criação do lançamento correspondente devem pertencer ao mesmo limite transacional. A intenção é evitar que o saldo seja alterado sem que o lançamento seja gravado, ou vice-versa.
+
+**Por que isso importa:** saldo e ledger precisam contar a mesma história financeira.
+
+**Limite atual:** isso não resolve sozinho a publicação confiável de eventos externos. A integração futura com mensageria deverá usar um desenho transacional adequado, como Outbox, para não depender de publicar uma mensagem antes ou depois do commit sem persistir a intenção de publicação.
+
+### 5.6 Bloqueio pessimista da carteira
+
+O fluxo atual utiliza bloqueio pessimista para a carteira que está sendo movimentada. Em termos simples, a transação solicita ao banco que proteja aquela carteira enquanto valida o saldo e aplica a alteração.
+
+**Exemplo:** com saldo de `90.00 BRL`, duas apostas simultâneas de `60.00 BRL` não podem ambas ser aprovadas. Uma deve consumir o saldo primeiro; a outra, ao verificar o saldo atualizado, deve ser rejeitada.
+
+**Por que não usar um lock global:** bloquear todas as carteiras reduziria o paralelismo sem necessidade. O objetivo é coordenar operações sobre a mesma carteira, deixando carteiras diferentes trabalharem independentemente.
+
+**Limite atual:** a correção sob concorrência precisa continuar sendo validada com testes automatizados e constraints no banco, inclusive quando várias instâncias da aplicação estiverem ativas.
+
+### 5.7 Idempotência persistida e conflito para payload diferente
+
+Provedores podem reenviar requisições por timeout, falha de rede ou incerteza sobre a resposta. Por isso, o backend procura transações já registradas usando os identificadores do provedor e da transação externa e compara a identidade do conteúdo de negócio.
+
+- **Repetição equivalente:** retorna o resultado já registrado e não executa um segundo débito.
+- **Mesmos identificadores, conteúdo diferente:** retorna conflito, pois a mesma identidade não deve representar duas operações financeiras diferentes.
+
+**Por que isso importa:** uma chave de idempotência não pode servir para esconder uma mudança de valor ou de dados da operação.
+
+**Limite atual:** antes de considerar o comportamento totalmente aderente ao desafio, ainda é necessário conferir e completar as garantias de unicidade no schema, bem como a definição canônica e documentada do payload usado na comparação.
+
+### 5.8 Valor monetário e validação
+
+O valor chega à API como texto decimal formatado, e a implementação valida seu formato e positividade antes de processá-lo. O front-end também envia o valor com duas casas decimais.
+
+**Por que isso importa:** dinheiro não deve ser tratado como um cálculo binário de ponto flutuante sem controle, pois isso pode introduzir diferenças de precisão.
+
+**Atenção:** formatar o valor no navegador não é uma garantia de segurança — clientes podem enviar requisições manualmente. A validação do backend é a relevante. O tratamento monetário completo e a verificação de que não há uso indevido de `number` em operações financeiras devem ser revisados antes de declarar conformidade integral com o desafio.
+
+### 5.9 Front-end em HTML, CSS e JavaScript puro
+
+A interface usa tecnologias nativas do navegador, sem React ou outro framework. Ela coleta os dados da aposta, envia uma requisição HTTP e exibe a resposta retornada pela API.
+
+**Por que essa escolha:** o objetivo do front-end é demonstrar o fluxo do backend de maneira simples, mantendo o foco do desafio na consistência financeira e não na complexidade da interface.
+
+A interface não simula saldo nem histórico fictício: mostra a resposta recebida do backend. A URL da API pode ser ajustada para facilitar o desenvolvimento local.
+
+### 5.10 CORS restrito à origem local de desenvolvimento
+
+A API habilita CORS para `http://localhost:8080`, origem usada pelo servidor local do front-end.
+
+**Por que isso é necessário:** navegadores restringem chamadas entre origens diferentes. Como a interface e a API usam portas distintas, a API precisa permitir explicitamente essa origem.
+
+**Importante:** essa configuração é voltada ao desenvolvimento local. Em um ambiente publicado, a origem permitida deve corresponder ao domínio real da interface e não deve ser ampliada sem necessidade.
+
+### 5.11 Escopo intencionalmente reduzido
+
+O MVP prioriza o caminho de `BET`: validar, conferir saldo, debitar com proteção contra repetição e registrar o lançamento. Funcionalidades adicionais não foram tratadas como concluídas apenas para aumentar a lista de recursos.
+
+**Por que isso importa:** em software financeiro, um escopo pequeno e compreensível é preferível a declarar funcionalidades críticas sem garantias verificadas.
+
+## 6. Front-end de demonstração
+
+O front-end fornece um formulário para enviar uma aposta à API.
+
+Campos disponíveis:
+
+| Campo | Finalidade |
+|---|---|
+| `providerId` | Identifica o provedor de jogos |
+| `externalTransactionId` | Identificador da transação no sistema do provedor |
+| `idempotencyKey` | Valor enviado no header `Idempotency-Key` para identificar a tentativa lógica |
+| `playerId` | Identifica o jogador cuja carteira será movimentada |
+| `amount` | Valor da aposta |
+| `currency` | Código da moeda, por exemplo `BRL` |
+| `roundId` | Identifica a rodada do jogo |
+| `gameId` | Identifica o jogo |
+
+O front-end envia `POST /wagering/transactions` com JSON e o header `Idempotency-Key`. O campo `kind` não é selecionado pela interface nesta versão porque o fluxo exposto está limitado a `BET`.
+
+A interface também apresenta a resposta JSON e mensagens de erro HTTP ou de conexão. Uma mensagem de falha de conexão no navegador pode indicar que a API está parada, que a URL está incorreta ou que o CORS não permite a origem da interface.
+
+## 7. Executando localmente
+
+Os comandos abaixo pressupõem Linux/Debian, Bun instalado e o repositório clonado. Ajuste os nomes dos serviços caso o seu `docker-compose.yml` use nomes diferentes.
+
+### 7.1 Subir o PostgreSQL
+
+Na raiz do projeto:
+
+```bash
+cd ~/Documentos/Desafio-jungle
+docker compose up -d
+docker compose ps
+```
+
+Confirme que o container do PostgreSQL está em execução.
+
+### 7.2 Configurar as variáveis de ambiente
+
+Entre na pasta da API:
+
+```bash
+cd ~/Documentos/Desafio-jungle/api
+```
+
+Confira se existe um `.env` local e se ele contém as variáveis exigidas pela configuração do projeto. **Não publique senhas, tokens ou credenciais reais no repositório.** Se o projeto fornecer um `.env.example`, use-o como referência e crie o `.env` local a partir dele.
+
+Não há valores universais para todas as variáveis: os nomes e valores válidos são os definidos pela configuração atual da aplicação.
+
+### 7.3 Instalar dependências e iniciar a API
+
+```bash
+cd ~/Documentos/Desafio-jungle/api
+bun install
+```
+
+Inicie a API com o script de desenvolvimento definido em `api/package.json`. No setup utilizado durante o desenvolvimento, o comando é:
+
+```bash
+bun run start:dev
+```
+
+A API deve ficar disponível em `http://localhost:3000`, salvo se a variável `PORT` estiver configurada com outra porta.
+
+Verifique se a raiz responde:
+
+```bash
+curl -i http://localhost:3000/
+```
+
+A rota `/health/live` ainda não está implementada no MVP e pode retornar `404 Not Found`. Esse resultado não significa, por si só, que a API está desligada.
+
+### 7.4 Iniciar o front-end
+
+Em outro terminal, na raiz do repositório:
+
+```bash
+cd ~/Documentos/Desafio-jungle
+python3 -m http.server 8080
+```
+
+Abra no navegador:
+
+```text
+http://localhost:8080/jungle-gaming-frontend/
+```
+
+Se a pasta do front-end estiver em outro local, execute o servidor Python no diretório que contém `index.html` e use a URL correspondente.
+
+A configuração local de CORS permite a origem `http://localhost:8080`. Se você servir o front-end por outra porta ou domínio, atualize a configuração de CORS de forma explícita.
+
+## 8. Testando a API com curl
+
+O exemplo abaixo ilustra o contrato utilizado pelo front-end. Execute-o com a API ativa:
+
+```bash
+curl -i -X POST http://localhost:3000/wagering/transactions \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-bet-001' \
+  -d '{
+    "providerId": "provider-demo",
+    "externalTransactionId": "demo-bet-001",
+    "playerId": "player-1",
+    "amount": "10.00",
+    "currency": "BRL",
+    "roundId": "round-1",
+    "gameId": "game-1"
+  }'
+```
+
+O resultado depende do estado atual da carteira `player-1` em `BRL` e das regras implementadas. O exemplo não cria automaticamente uma carteira nem garante um saldo inicial específico.
+
+Para testar idempotência, envie a mesma requisição novamente com os mesmos identificadores e conteúdo. O comportamento esperado é reconhecer a operação já registrada, em vez de efetuar outro débito. Reutilizar a mesma identidade com conteúdo de negócio diferente deve resultar em conflito.
+
+## 9. Respostas e cenários esperados
+
+Os testes manuais realizados durante o desenvolvimento demonstraram os seguintes comportamentos:
+
+| Cenário | Comportamento observado/esperado |
+|---|---|
+| Aposta válida com saldo suficiente | A transação é processada, o saldo diminui e é criado um lançamento de débito |
+| Aposta maior que o saldo disponível | A transação é rejeitada e o saldo não diminui |
+| Reenvio idêntico de uma transação | A operação é reconhecida como replay e não gera um segundo débito |
+| Mesmos identificadores com valor ou payload diferente | A API responde com conflito |
+| Duas apostas concorrentes disputando o mesmo saldo | O bloqueio da carteira coordena o acesso; não devem ser aprovadas apostas que, juntas, ultrapassem o saldo disponível |
+
+Esses resultados são evidências de testes manuais do fluxo atual, não uma declaração de que todos os cenários de falha distribuída do desafio já estão cobertos por testes automatizados.
+
+## 10. Limitações conhecidas
+
+- O escopo financeiro implementado está concentrado em `BET`.
+- Não há ainda uma pipeline completa de eventos via SQS.
+- A recuperação durável de eventos e o padrão Outbox ainda precisam ser implementados.
+- As rotas de consulta e reconciliação previstas no desafio não devem ser consideradas disponíveis sem confirmação no código.
+- A rota `/health/live` ainda não existe; a raiz `/` responde, mas isso não equivale a um endpoint de health completo.
+- CORS está configurado para a origem local de desenvolvimento.
+- O front-end é uma ferramenta de demonstração e não substitui autenticação, autorização ou validações de segurança de um produto real.
+- O projeto precisa de mais testes automatizados, especialmente para concorrência, duplicidade, rollback, falhas de banco e recuperação de mensagens.
+- Antes de produção, é necessário revisar o schema do banco, as constraints, as migrations reversíveis, a precisão monetária e todas as invariantes do desafio.
+
+## 11. Próximos passos
+
+Uma evolução coerente do MVP seria:
+
+1. Completar e automatizar os testes de idempotência e concorrência.
+2. Revisar o schema PostgreSQL para impor as invariantes críticas por meio de constraints e índices.
+3. Formalizar o modelo monetário e revisar todos os caminhos de cálculo.
+4. Implementar Inbox/Outbox persistidos com transações adequadas.
+5. Integrar SQS via LocalStack ou MiniStack e implementar workers com retentativas e tratamento de mensagens problemáticas.
+6. Adicionar as operações `WIN`, `LOSS`, `REFUND` e `ROLLBACK`, com regras explícitas de transição.
+7. Implementar endpoints de consulta e reconciliação.
+8. Adicionar migrations versionadas e reversíveis, observabilidade e documentação de arquitetura.
+9. Configurar autenticação com um Identity Provider externo se o escopo final exigir acesso autenticado.
+
+## 12. Uso de inteligência artificial
+
+Este projeto foi desenvolvido com auxílio de uma ferramenta de inteligência artificial (IA), inclusive como apoio na criação do front-end e da documentação. O código gerado foi utilizado como ponto de partida e deve ser revisado, testado e ajustado pelo responsável pelo projeto. A utilização de IA não substitui a compreensão das decisões técnicas, a validação do comportamento nem a responsabilidade pela solução entregue.
+
+---
+
+**Resumo:** este repositório apresenta um MVP funcional do caminho de aposta (`BET`), com validação básica, persistência, controle de saldo, ledger, idempotência e proteção contra concorrência no fluxo implementado. O objetivo é demonstrar uma base técnica clara, reconhecendo explicitamente o que ainda precisa ser construído para atender ao desafio distribuído completo.
